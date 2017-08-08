@@ -43,7 +43,7 @@ __C.CNTK.MOMENTUM_PER_MB = 0.9
 __C.CNTK.BIAS_LR_MULT = 2.0
 
 # E2E learning parameters
-__C.CNTK.MAX_EPOCHS = 20
+__C.CNTK.MAX_EPOCHS = 1 # 20
 __C.CNTK.LR_FACTOR = 1.0
 __C.CNTK.LR_PER_SAMPLE = [0.001] * 10 + [0.0001] * 10 + [0.00001]
 
@@ -62,7 +62,7 @@ __C.CNTK.RESULTS_NMS_THRESHOLD = 0.5
 __C.CNTK.RESULTS_NMS_CONF_THRESHOLD = 0.0
 
 # Debug parameters
-__C.CNTK.DEBUG_OUTPUT = False
+__C.CNTK.DEBUG_OUTPUT = True
 __C.CNTK.GRAPH_TYPE = "png" # "png" or "pdf"
 
 # Enable plotting of results generally / also plot background boxes / also plot unregressed boxes

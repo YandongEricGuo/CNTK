@@ -84,7 +84,7 @@ def prepare(cfg, use_arg_parser=True):
         force_deterministic_algorithms()
     np.random.seed(seed=cfg.RND_SEED)
 
-    if cfg["CNTK"].DEBUG_OUTPUT:
+    if False and cfg["CNTK"].DEBUG_OUTPUT:
         # report args
         print("Using the following parameters:")
         print("Flip image       : {}".format(cfg["TRAIN"].USE_FLIPPED))
@@ -663,7 +663,7 @@ def train_fast_rcnn(cfg):
         image_input = input_variable(shape=(cfg["CNTK"].NUM_CHANNELS, cfg["CNTK"].IMAGE_HEIGHT, cfg["CNTK"].IMAGE_WIDTH),
                                      dynamic_axes=[Axis.default_batch_axis()],
                                      name=cfg["CNTK"].FEATURE_NODE_NAME)
-        roi_proposals = input_variable((cfg.NUM_ROI_PROPOSALS, 4), dynamic_axes=[Axis.default_batch_axis()])
+        roi_proposals = input_variable((cfg.NUM_ROI_PROPOSALS, 4), dynamic_axes=[Axis.default_batch_axis()], name = "roi_proposals")
         label_targets = input_variable((cfg.NUM_ROI_PROPOSALS, cfg["CNTK"].NUM_CLASSES), dynamic_axes=[Axis.default_batch_axis()])
         bbox_targets = input_variable((cfg.NUM_ROI_PROPOSALS, 4*cfg["CNTK"].NUM_CLASSES), dynamic_axes=[Axis.default_batch_axis()])
         bbox_inside_weights = input_variable((cfg.NUM_ROI_PROPOSALS, 4*cfg["CNTK"].NUM_CLASSES), dynamic_axes=[Axis.default_batch_axis()])
@@ -743,6 +743,28 @@ def train_fast_rcnn(cfg):
 
             progress_printer.epoch_summary(with_metric=True)
 
-        return create_fast_rcnn_eval_model(loss, image_input, dims_input, cfg)
+        return create_fast_rcnn_eval_model(loss, image_input, roi_proposals, cfg)
 
+
+def create_fast_rcnn_eval_model(model, image_input, roi_proposals, cfg, rpn_model=None):
+    print("creating eval model")
+    predictor = clone_model(model, ["roi_proposals", cfg["CNTK"].FEATURE_NODE_NAME], ["cls_score", "bbox_regr", "roi_proposals"], CloneMethod.freeze)
+    pred_net = predictor(image_input, roi_proposals)
+    cls_score = pred_net.outputs[0]
+    bbox_regr = pred_net.outputs[1]
+    roi_proposals_out = pred_net.outputs[2]
+
+    if cfg["TRAIN"].BBOX_NORMALIZE_TARGETS:
+        num_boxes = int(bbox_regr.shape[1] / 4)
+        bbox_normalize_means = np.array(cfg["TRAIN"].BBOX_NORMALIZE_MEANS * num_boxes)
+        bbox_normalize_stds = np.array(cfg["TRAIN"].BBOX_NORMALIZE_STDS * num_boxes)
+        bbox_regr = plus(element_times(bbox_regr, bbox_normalize_stds), bbox_normalize_means, name='bbox_regr')
+
+    cls_pred = softmax(cls_score, axis=1, name='cls_pred')
+    eval_model = combine([cls_pred, roi_proposals_out, bbox_regr])
+
+    if cfg["CNTK"].DEBUG_OUTPUT:
+        plot(eval_model, os.path.join(cfg["CNTK"].OUTPUT_PATH, "graph_frcn_eval." + cfg["CNTK"].GRAPH_TYPE))
+
+    return eval_model
 
