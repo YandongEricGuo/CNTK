@@ -35,6 +35,9 @@ def load_resize_and_pad(image_path, width, height, pad_value=114):
         exit(0)
 
     img = cv2.imread(image_path)
+    return resize_and_pad(img, width, height, pad_value)
+
+def resize_and_pad(img, width, height, pad_value=114):
     img_width = len(img[0])
     img_height = len(img)
     scale_w = img_width > img_height

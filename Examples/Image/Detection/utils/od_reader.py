@@ -8,7 +8,7 @@ import zipfile
 import cv2 # pip install opencv-python
 import numpy as np
 import os
-from utils.proposal_helpers import ProposalProvider, compute_targets
+from utils.proposal_helpers import ProposalProvider, compute_targets, compute_image_stats
 
 DEBUG = False
 if DEBUG:
@@ -152,22 +152,12 @@ class ObjectDetectionReader:
         img_height = len(img)
 
         # prepare image statistics for scaling and padding images later
-        do_scale_w = img_width > img_height
-        target_w = self._pad_width
-        target_h = self._pad_height
-
-        if do_scale_w:
-            scale_factor = float(self._pad_width) / float(img_width)
-            target_h = int(np.round(img_height * scale_factor))
-        else:
-            scale_factor = float(self._pad_height) / float(img_height)
-            target_w = int(np.round(img_width * scale_factor))
-
-        top = int(max(0, np.round((self._pad_height - target_h) / 2)))
-        left = int(max(0, np.round((self._pad_width - target_w) / 2)))
-        bottom = self._pad_height - top - target_h
-        right = self._pad_width - left - target_w
-        self._img_stats[index] = [target_w, target_h, img_width, img_height, top, bottom, left, right, scale_factor]
+        # [target_w, target_h, img_width, img_height, top, bottom, left, right, scale_factor]
+        img_stats = compute_image_stats(img_width, img_height, self._pad_width, self._pad_height)
+        self._img_stats[index] = img_stats
+        scale_factor = img_stats[-1]
+        top = img_stats[4]
+        left = img_stats[6]
 
         # prepare annotations
         annotations = self._gt_annotations[index]

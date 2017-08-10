@@ -65,7 +65,7 @@ def prepare(cfg, use_arg_parser=True):
     cfg["CNTK"].TRAIN_ROI_FILE = os.path.join(data_path, cfg["CNTK"].TRAIN_ROI_FILE)
     cfg["CNTK"].TEST_ROI_FILE = os.path.join(data_path, cfg["CNTK"].TEST_ROI_FILE)
 
-    cfg['MODEL_PATH'] = os.path.join(cfg["CNTK"].OUTPUT_PATH, "faster_rcnn_eval_{}_{}.model"
+    cfg['MODEL_PATH'] = os.path.join(cfg["CNTK"].OUTPUT_PATH, "fast_rcnn_eval_{}_{}.model"
                                      .format(cfg["CNTK"].BASE_MODEL, "e2e" if cfg["CNTK"].TRAIN_E2E else "4stage"))
     cfg['BASE_MODEL_PATH'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "PretrainedModels",
                                           cfg["CNTK"].BASE_MODEL_FILE)
@@ -706,7 +706,7 @@ def train_fast_rcnn(cfg):
         log_number_of_parameters(loss)
 
         # Create the minibatch source
-        proposal_provider = ProposalProvider(proposal_list=None, proposal_cfg=cfg)
+        proposal_provider = ProposalProvider.fromconfig(cfg)
         od_minibatch_source = ObjectDetectionMinibatchSource(
             cfg["CNTK"].TRAIN_MAP_FILE, cfg["CNTK"].TRAIN_ROI_FILE,
             max_annotations_per_image=cfg["CNTK"].INPUT_ROIS_PER_IMAGE,
@@ -743,16 +743,16 @@ def train_fast_rcnn(cfg):
 
             progress_printer.epoch_summary(with_metric=True)
 
-        return create_fast_rcnn_eval_model(loss, image_input, roi_proposals, cfg)
+        eval_model = create_fast_rcnn_eval_model(loss, image_input, roi_proposals, cfg)
+        eval_model.save(cfg['MODEL_PATH'])
+        return eval_model
 
-
-def create_fast_rcnn_eval_model(model, image_input, roi_proposals, cfg, rpn_model=None):
+def create_fast_rcnn_eval_model(model, image_input, roi_proposals, cfg):
     print("creating eval model")
-    predictor = clone_model(model, ["roi_proposals", cfg["CNTK"].FEATURE_NODE_NAME], ["cls_score", "bbox_regr", "roi_proposals"], CloneMethod.freeze)
+    predictor = clone_model(model, [cfg["CNTK"].FEATURE_NODE_NAME, "roi_proposals"], ["cls_score", "bbox_regr"], CloneMethod.freeze)
     pred_net = predictor(image_input, roi_proposals)
     cls_score = pred_net.outputs[0]
     bbox_regr = pred_net.outputs[1]
-    roi_proposals_out = pred_net.outputs[2]
 
     if cfg["TRAIN"].BBOX_NORMALIZE_TARGETS:
         num_boxes = int(bbox_regr.shape[1] / 4)
@@ -761,7 +761,7 @@ def create_fast_rcnn_eval_model(model, image_input, roi_proposals, cfg, rpn_mode
         bbox_regr = plus(element_times(bbox_regr, bbox_normalize_stds), bbox_normalize_means, name='bbox_regr')
 
     cls_pred = softmax(cls_score, axis=1, name='cls_pred')
-    eval_model = combine([cls_pred, roi_proposals_out, bbox_regr])
+    eval_model = combine([cls_pred, bbox_regr])
 
     if cfg["CNTK"].DEBUG_OUTPUT:
         plot(eval_model, os.path.join(cfg["CNTK"].OUTPUT_PATH, "graph_frcn_eval." + cfg["CNTK"].GRAPH_TYPE))

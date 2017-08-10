@@ -30,7 +30,7 @@ __C.CNTK.FORCE_DETERMINISTIC = False
 # set to 'True' to run only a single epoch
 __C.CNTK.FAST_MODE = False
 
-__C.NUM_ROI_PROPOSALS = 100
+__C.NUM_ROI_PROPOSALS = 1500
 __C.PROPOSALS_MIN_W = 20
 __C.PROPOSALS_MIN_H = 20
 __C.BBOX_THRESH = 0.5
@@ -43,7 +43,7 @@ __C.CNTK.MOMENTUM_PER_MB = 0.9
 __C.CNTK.BIAS_LR_MULT = 2.0
 
 # E2E learning parameters
-__C.CNTK.MAX_EPOCHS = 1 # 20
+__C.CNTK.MAX_EPOCHS = 20
 __C.CNTK.LR_FACTOR = 1.0
 __C.CNTK.LR_PER_SAMPLE = [0.001] * 10 + [0.0001] * 10 + [0.00001]
 
@@ -67,8 +67,8 @@ __C.CNTK.GRAPH_TYPE = "png" # "png" or "pdf"
 
 # Enable plotting of results generally / also plot background boxes / also plot unregressed boxes
 __C.CNTK.VISUALIZE_RESULTS = True
-__C.CNTK.DRAW_NEGATIVE_ROIS = False
-__C.CNTK.DRAW_UNREGRESSED_ROIS = False
+__C.CNTK.DRAW_NEGATIVE_ROIS = True
+__C.CNTK.DRAW_UNREGRESSED_ROIS = True
 # only for plotting results: boxes with a score lower than this threshold will be considered background
 __C.CNTK.RESULTS_BGR_PLOT_THRESHOLD = 0.1
 

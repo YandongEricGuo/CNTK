@@ -1,14 +1,63 @@
 import os
 import numpy as np
 from matplotlib.pyplot import imsave
+import cv2
 import cntk
 from cntk import input_variable, Axis
 from utils.nms_wrapper import apply_nms_to_single_image_results
 from utils.map_helpers import evaluate_detections
-from utils.plot_helpers import load_resize_and_pad, visualize_detections
+from utils.plot_helpers import load_resize_and_pad, resize_and_pad, visualize_detections
 from utils.rpn.bbox_transform import regress_rois
 from utils.od_mb_source import ObjectDetectionMinibatchSource
-from utils.proposal_helpers import ProposalProvider
+from utils.proposal_helpers import ProposalProvider, compute_proposals, compute_image_stats
+
+class FastRCNN_Evaluator:
+    def __init__(self, eval_model, cfg):
+        # load model once in constructor and push images through the model in 'process_image()'
+        self._img_shape = (cfg["CNTK"].NUM_CHANNELS, cfg["CNTK"].IMAGE_HEIGHT, cfg["CNTK"].IMAGE_WIDTH)
+        image_input = input_variable(shape=self._img_shape,
+                                     dynamic_axes=[Axis.default_batch_axis()],
+                                     name=cfg["CNTK"].FEATURE_NODE_NAME)
+        roi_proposals = input_variable((cfg.NUM_ROI_PROPOSALS, 4), dynamic_axes=[Axis.default_batch_axis()],
+                                       name="roi_proposals")
+        self._eval_model = eval_model(image_input, roi_proposals)
+        self._min_w = cfg['PROPOSALS_MIN_W']
+        self._min_h = cfg['PROPOSALS_MIN_H']
+        self._num_proposals = cfg['NUM_ROI_PROPOSALS']
+
+    def process_image(self, img_path):
+        out_cls_pred, out_rpn_rois, out_bbox_regr, dims = self.process_image_detailed(img_path)
+        labels = out_cls_pred.argmax(axis=1)
+        regressed_rois = regress_rois(out_rpn_rois, out_bbox_regr, labels, dims)
+
+        return regressed_rois, out_cls_pred
+
+    def process_image_detailed(self, img_path):
+        img = cv2.imread(img_path)
+        _, cntk_img_input, dims = resize_and_pad(img, self._img_shape[2], self._img_shape[1])
+
+        #import pdb; pdb.set_trace()
+
+        # compute ROI proposals and apply scaling and padding to them
+        # [target_w, target_h, img_width, img_height, top, bottom, left, right, scale_factor]
+        img_stats = compute_image_stats(len(img[0]), len(img), self._img_shape[2], self._img_shape[1])
+        scale_factor = img_stats[-1]
+        top = img_stats[4]
+        left = img_stats[6]
+
+        proposals = compute_proposals(img, self._num_proposals, self._min_w, self._min_h)
+        proposals = proposals * scale_factor
+        proposals += (left, top, left, top)
+
+        output = self._eval_model.eval({self._eval_model.arguments[0]: [cntk_img_input],
+                                        self._eval_model.arguments[1]: np.array(proposals, dtype=np.float32)})
+
+        out_dict = dict([(k.name, k) for k in output])
+        out_cls_pred = output[out_dict['cls_pred']][0]
+        out_rpn_rois = proposals
+        out_bbox_regr = output[out_dict['bbox_regr']][0]
+
+        return out_cls_pred, out_rpn_rois, out_bbox_regr, dims
 
 class FasterRCNN_Evaluator:
     def __init__(self, eval_model, cfg):
@@ -52,7 +101,7 @@ def compute_test_set_aps(eval_model, cfg):
     dims_input = input_variable((6), dynamic_axes=[Axis.default_batch_axis()])
     frcn_eval = eval_model(image_input, dims_input)
 
-    proposal_provider = ProposalProvider(cfg)
+    proposal_provider = ProposalProvider.fromconfig(cfg)
 
     # Create the minibatch source
     minibatch_source = ObjectDetectionMinibatchSource(
@@ -126,15 +175,12 @@ def compute_test_set_aps(eval_model, cfg):
 
     return aps
 
-def plot_test_set_results(eval_model, num_images_to_plot, results_base_path, cfg):
+def plot_test_set_results(evaluator, num_images_to_plot, results_base_path, cfg):
     # get image paths
     with open(cfg["CNTK"].TEST_MAP_FILE) as f:
         content = f.readlines()
     img_base_path = os.path.dirname(os.path.abspath(cfg["CNTK"].TEST_MAP_FILE))
     img_file_names = [os.path.join(img_base_path, x.split('\t')[1]) for x in content]
-
-    # prepare model
-    evaluator = FasterRCNN_Evaluator(eval_model, cfg)
     img_shape = (cfg["CNTK"].NUM_CHANNELS, cfg["CNTK"].IMAGE_HEIGHT, cfg["CNTK"].IMAGE_WIDTH)
 
     print("Plotting results from Faster R-CNN model for %s images." % num_images_to_plot)
@@ -181,10 +227,10 @@ def compute_test_set_aps_fast_rcnn(eval_model, cfg):
     roi_input = input_variable((cfg["CNTK"].INPUT_ROIS_PER_IMAGE, 5), dynamic_axes=[Axis.default_batch_axis()])
     roi_proposals = input_variable((cfg.NUM_ROI_PROPOSALS, 4), dynamic_axes=[Axis.default_batch_axis()], name="roi_proposals")
     dims_input = input_variable((6), dynamic_axes=[Axis.default_batch_axis()])
-    frcn_eval = eval_model(roi_proposals, image_input)
+    frcn_eval = eval_model(image_input, roi_proposals)
 
     # Create the minibatch source
-    proposal_provider = ProposalProvider(proposal_list=None, proposal_cfg=cfg)
+    proposal_provider = ProposalProvider.fromconfig(cfg)
     minibatch_source = ObjectDetectionMinibatchSource(
         cfg["CNTK"].TEST_MAP_FILE,
         cfg["CNTK"].TEST_ROI_FILE,
@@ -211,7 +257,7 @@ def compute_test_set_aps_fast_rcnn(eval_model, cfg):
     all_boxes = [[[] for _ in range(num_test_images)] for _ in range(cfg["CNTK"].NUM_CLASSES)]
 
     # evaluate test images and write netwrok output to file
-    print("Evaluating Faster R-CNN model for %s images." % num_test_images)
+    print("Evaluating Fast R-CNN model for %s images." % num_test_images)
     all_gt_infos = {key: [] for key in classes}
     for img_i in range(0, num_test_images):
         mb_data = minibatch_source.next_minibatch(1, input_map=input_map)
@@ -230,7 +276,7 @@ def compute_test_set_aps_fast_rcnn(eval_model, cfg):
         output = frcn_eval.eval({image_input: mb_data[image_input], roi_proposals: mb_data[roi_proposals]})
         out_dict = dict([(k.name, k) for k in output])
         out_cls_pred = output[out_dict['cls_pred']][0]
-        out_rpn_rois = output[out_dict['roi_proposals']][0]
+        out_rpn_rois = mb_data[roi_proposals].data.asarray()
         out_bbox_regr = output[out_dict['bbox_regr']][0]
 
         labels = out_cls_pred.argmax(axis=1)

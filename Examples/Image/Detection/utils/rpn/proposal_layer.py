@@ -228,6 +228,7 @@ class ProposalLayer(UserFunction):
 
     @staticmethod
     def deserialize(inputs, name, state):
+        import pdb; pdb.set_trace()
         return ProposalLayer(inputs[0], inputs[1], inputs[2],
                              train_pre_nms_topN=state['train_pre_nms_topN'],
                              train_post_nms_topN=state['train_post_nms_topN'],

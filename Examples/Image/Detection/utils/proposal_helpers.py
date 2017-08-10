@@ -5,6 +5,25 @@ from utils.cython_modules.cython_bbox import bbox_overlaps
 
 random_seed = 23
 
+def compute_image_stats(img_width, img_height, pad_width, pad_height):
+    do_scale_w = img_width > img_height
+    target_w = pad_width
+    target_h = pad_height
+
+    if do_scale_w:
+        scale_factor = float(pad_width) / float(img_width)
+        target_h = int(np.round(img_height * scale_factor))
+    else:
+        scale_factor = float(pad_height) / float(img_height)
+        target_w = int(np.round(img_width * scale_factor))
+
+    top = int(max(0, np.round((pad_height - target_h) / 2)))
+    left = int(max(0, np.round((pad_width - target_w) / 2)))
+    bottom = pad_height - top - target_h
+    right = pad_width - left - target_w
+    return [target_w, target_h, img_width, img_height, top, bottom, left, right, scale_factor]
+
+
 def compute_proposals(img, num_proposals, min_w, min_h):
     all_rects = []
     min_size = min_w * min_h
